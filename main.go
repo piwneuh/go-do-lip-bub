@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -24,17 +26,24 @@ type model struct {
 }
 
 type task struct {
-	label     string
-	completed bool
+	Label     string `json:"label"`
+	Completed bool   `json:"completed"`
 }
 
 func main() {
 	initialTasks := []task{
-		{label: "Wake up sleeepy head 🛏️ 💤", completed: false},
-		{label: "Brush your teeth 🦷", completed: false},
-		{label: "Get some ☕", completed: false},
+		{Label: "Wake up sleeepy head 🛏️ 💤", Completed: false},
+		{Label: "Brush your teeth 🦷", Completed: false},
+		{Label: "Get some ☕", Completed: false},
 	}
-	p := tea.NewProgram(model{tasks: initialTasks})
+
+	tasks, err := loadTasks()
+	if err != nil {
+		fmt.Println("Could not load tasks:", err)
+		tasks = initialTasks
+	}
+
+	p := tea.NewProgram(model{tasks: tasks})
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 	}
@@ -44,6 +53,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
+// TODO: Move into Service file
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -53,6 +63,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.creating = false
 				m.input = ""
 				return m, nil
+			}
+			// Persists tasks to json file
+			if err := saveTasks(m.tasks); err != nil {
+				return m, tea.Quit
 			}
 			return m, tea.Quit
 		case "down":
@@ -67,9 +81,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if !m.creating {
-				m.tasks[m.selected].completed = !m.tasks[m.selected].completed
+				m.tasks[m.selected].Completed = !m.tasks[m.selected].Completed
 			} else if m.input != "" {
-				m.tasks = append(m.tasks, task{label: m.input, completed: false})
+				m.tasks = append(m.tasks, task{Label: m.input, Completed: false})
 				m.input = ""
 				m.creating = false
 			}
@@ -88,27 +102,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+
 	return m, nil
 }
 
+// TODO: Move into View file
 func (m model) View() string {
 	var s string
 	if m.creating {
 		s += inputStyle.Render(fmt.Sprintf("Add Task: %s", m.input))
 	} else {
-		s += "🧙 Mornin', adventurer! ☁️⚡\n"
+		s += "🧙 Mornin', adventurer! ☁️⚡\n\n"
 		for i, task := range m.tasks {
 			cursor := " "
 			if i == m.selected {
 				cursor = pointerStyle.Render(">")
 			}
-			taskText := taskStyle.Render(task.label)
-			if task.completed {
-				taskText = completedStyle.Render(task.label)
+			taskText := taskStyle.Render(task.Label)
+			if task.Completed {
+				taskText = completedStyle.Render(task.Label)
 			}
 			s += fmt.Sprintf("%s %s\n", cursor, taskText)
 		}
-		s += "\nPress 'n' to add a new task."
+		s += "\n⚔️  Press 'n' to add a new daily battle ⚔️."
 	}
 	return mainStyle.Render(s)
+}
+
+// TODO: Move into DB file
+func saveTasks(tasks []task) error {
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile("tasks.json", data, 0644)
+}
+
+func loadTasks() ([]task, error) {
+	data, err := os.ReadFile("tasks.json")
+	if err != nil {
+		return nil, err // File might not exist on first run; handle accordingly.
+	}
+	var tasks []task
+	err = json.Unmarshal(data, &tasks)
+	return tasks, err
 }
